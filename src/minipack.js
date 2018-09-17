@@ -127,12 +127,15 @@ function bundle(graph) {
   const result = `
     (function(modules) {
       function require(id) {
+        // 提取对应依赖的 function 和 mapping 如上
         const [fn, mapping] = modules[id];
 
         function localRequire(name) {
+          // 依赖解析
           return require(mapping[name]);
         }
 
+        // 默认导出 为空对象
         const module = { exports : {} };
 
         // 递归require，依次得到依赖的exports结果
@@ -142,6 +145,7 @@ function bundle(graph) {
         return module.exports;
       }
 
+      // 从入口开始 id: 0
       require(0);
     })({${modules}})
   `; // 打包
