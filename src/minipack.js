@@ -1,31 +1,3 @@
-/**
- * Module bundlers compile small pieces of code into something larger and more
- * complex that can run in a web browser. These small pieces are just JavaScript
- * files, and dependencies between them are expressed by a module system
- * (https://webpack.js.org/concepts/modules).
- *
- * Module bundlers have this concept of an entry file. Instead of adding a few
- * script tags in the browser and letting them run, we let the bundler know
- * which file is the main file of our application. This is the file that should
- * bootstrap our entire application.
- *
- * Our bundler will start from that entry file, and it will try to understand
- * which files it depends on. Then, it will try to understand which files its
- * dependencies depend on. It will keep doing that until it figures out about
- * every module in our application, and how they depend on one another.
- *
- * This understanding of a project is called the dependency graph.
- *
- * In this example, we will create a dependency graph and use it to package
- * all of its modules in one bundle.
- *
- * Let's begin :)
- *
- * Please note: This is a very simplified example. Handling cases such as
- * circular dependencies, caching module exports, parsing each module just once
- * and others are skipped to make this example as simple as possible.
- */
-
 const fs = require('fs');
 const path = require('path');
 const babylon = require('babylon');
@@ -34,60 +6,53 @@ const {transformFromAst} = require('babel-core');
 
 let ID = 0;
 
-// We start by creating a function that will accept a path to a file, read
-// its contents, and extract its dependencies.
+/**
+ * 根据文件路径解析文件
+ * @param {string} filename 文件路径
+ * @returns {Asset} {
+ *  id: number, 文件对应id
+ *  filename: string, 文件路径
+ *  dependencies: Array<string>, 所有依赖路径
+ *  code: string, 解析后代码
+ * }
+ */
 function createAsset(filename) {
-  // Read the content of the file as a string.
+  // \n 是换行，\r是回车
+  // crlf: "\r\n", windows系统的换行方式
+  // lf  : "\n",   Linux系统的换行方式
+  // 得到该路径文件的内容 回车根据LF or CRLF 转码为 \n or \r\n
   const content = fs.readFileSync(filename, 'utf-8');
 
-  // Now we try to figure out which files this file depends on. We can do that
-  // by looking at its content for import strings. However, this is a pretty
-  // clunky approach, so instead, we will use a JavaScript parser.
-  //
-  // JavaScript parsers are tools that can read and understand JavaScript code.
-  // They generate a more abstract model called an AST (abstract syntax tree).
-
-  // I strongly suggest that you look at AST Explorer (https://astexplorer.net)
-  // to see how an AST looks like.
-  //
-  // The AST contains a lot of information about our code. We can query it to
-  // understand what our code is trying to do.
+  // 构建该路径文件的抽象语法树：包含每个关键词的名称以及开始结束位置
   const ast = babylon.parse(content, {
     sourceType: 'module',
   });
 
-  // This array will hold the relative paths of modules this module depends on.
+  // 依赖路径字符串数组
   const dependencies = [];
 
-  // We traverse the AST to try and understand which modules this module depends
-  // on. To do that, we check every import declaration in the AST.
+  // 根据语法树获得依赖路径字符串
   traverse(ast, {
-    // EcmaScript modules are fairly easy because they are static. This means
-    // that you can't import a variable, or conditionally import another module.
-    // Every time we see an import statement we can just count its value as a
-    // dependency.
     ImportDeclaration: ({node}) => {
-      // We push the value that we import into the dependencies array.
-      dependencies.push(node.source.value);
+      dependencies.push(node.source.value); // 路径
     },
   });
 
-  // We also assign a unique identifier to this module by incrementing a simple
-  // counter.
+  // console.log(dependencies);
+
+  // counter ID 表示依赖文件唯一性
+  // 这里并没有对解析过的依赖作处理
   const id = ID++;
 
-  // We use EcmaScript modules and other JavaScript features that may not be
-  // supported on all browsers. To make sure our bundle runs in all browsers we
-  // will transpile it with Babel (see https://babeljs.io).
-  //
-  // The `presets` option is a set of rules that tell Babel how to transpile
-  // our code. We use `babel-preset-env` to transpile our code to something
-  // that most browsers can run.
+  // 通过 Babel 把语法树生成可执行代码的形式
+  // 对于模块导出 并判断是不是 export default
   const {code} = transformFromAst(ast, null, {
     presets: ['env'],
   });
 
-  // Return all information about this module.
+  // console.log(code, '\n');
+
+  // 返回该模块的所有信息
   return {
     id,
     filename,
@@ -96,129 +61,69 @@ function createAsset(filename) {
   };
 }
 
-// Now that we can extract the dependencies of a single module, we are going to
-// start by extracting the dependencies of the entry file.
-//
-// Then, we are going to extract the dependencies of every one of its
-// dependencies. We will keep that going until we figure out about every module
-// in the application and how they depend on one another. This understanding of
-// a project is called the dependency graph.
+/**
+ * 从入口文件开始，构建整个应用的依赖关系图
+ * @param {string} entry  入口文件路径
+ * @returns {Array<Asset>} 所有依赖及其关系
+ */
 function createGraph(entry) {
   // Start by parsing the entry file.
   const mainAsset = createAsset(entry);
 
-  // We're going to use a queue to parse the dependencies of every asset. To do
-  // that we are defining an array with just the entry asset.
+  // 队列数组包装
   const queue = [mainAsset];
 
-  // We use a `for ... of` loop to iterate over the queue. Initially the queue
-  // only has one asset but as we iterate it we will push additional new assets
-  // into the queue. This loop will terminate when the queue is empty.
+  // for of 迭代 Asset对象 数组
   for (const asset of queue) {
-    // Every one of our assets has a list of relative paths to the modules it
-    // depends on. We are going to iterate over them, parse them with our
-    // `createAsset()` function, and track the dependencies this module has in
-    // this object.
+    // 初始依赖映射关系
     asset.mapping = {};
 
-    // This is the directory this module is in.
+    // 获取文件所在目录
     const dirname = path.dirname(asset.filename);
 
-    // We iterate over the list of relative paths to its dependencies.
+    // 迭代查询依赖
     asset.dependencies.forEach(relativePath => {
-      // Our `createAsset()` function expects an absolute filename. The
-      // dependencies array is an array of relative paths. These paths are
-      // relative to the file that imported them. We can turn the relative path
-      // into an absolute one by joining it with the path to the directory of
-      // the parent asset.
+
+      // 根据 模块路径 和 import路径 生成其依赖模块的绝对路径
       const absolutePath = path.join(dirname, relativePath);
 
-      // Parse the asset, read its content, and extract its dependencies.
+      // console.log(dirname, relativePath, absolutePath);
+
+      // 对依赖模块解析
       const child = createAsset(absolutePath);
 
-      // It's essential for us to know that `asset` depends on `child`. We
-      // express that relationship by adding a new property to the `mapping`
-      // object with the id of the child.
+      // 标记依赖的ID，即 key 值
       asset.mapping[relativePath] = child.id;
 
-      // Finally, we push the child asset into the queue so its dependencies
-      // will also be iterated over and parsed.
+      // 孩子入队 继续迭代 直到队列处理完（无新增Asset）
+      // 即处理完应用的所有依赖关系
       queue.push(child);
     });
   }
-
-  // At this point the queue is just an array with every module in the target
-  // application: This is how we represent our graph.
+  // 返回所有解析过的依赖模块，数组形式包含相互依赖关系
   return queue;
 }
 
-// Next, we define a function that will use our graph and return a bundle that
-// we can run in the browser.
-//
-// Our bundle will have just one self-invoking function:
-//
-// (function() {})()
-//
-// That function will receive just one parameter: An object with information
-// about every module in our graph.
+/**
+ * 根据依赖关系打包生成该应用的可执行代码
+ * @param {Array<Asset>} graph  所有依赖及其关系图
+ */
 function bundle(graph) {
   let modules = '';
 
-  // Before we get to the body of that function, we'll construct the object that
-  // we'll pass to it as a parameter. Please note that this string that we're
-  // building gets wrapped by two curly braces ({}) so for every module, we add
-  // a string of this format: `key: value,`.
   graph.forEach(mod => {
-    // Every module in the graph has an entry in this object. We use the
-    // module's id as the key and an array for the value (we have 2 values for
-    // every module).
-    //
-    // The first value is the code of each module wrapped with a function. This
-    // is because modules should be scoped: Defining a variable in one module
-    // shouldn't affect others or the global scope.
-    //
-    // Our modules, after we transpiled them, use the CommonJS module system:
-    // They expect a `require`, a `module` and an `exports` objects to be
-    // available. Those are not normally available in the browser so we'll
-    // implement them and inject them into our function wrappers.
-    //
-    // For the second value, we stringify the mapping between a module and its
-    // dependencies. This is an object that looks like this:
-    // { './relative/path': 1 }.
-    //
-    // This is because the transpiled code of our modules has calls to
-    // `require()` with relative paths. When this function is called, we should
-    // be able to know which module in the graph corresponds to that relative
-    // path for this module.
-    modules += `${mod.id}: [
-      function (require, module, exports) {
-        ${mod.code}
-      },
-      ${JSON.stringify(mod.mapping)},
-    ],`;
+    // 对每个模块函数式封装，避免污染
+    // 并注入依赖
+    modules += `
+      ${mod.id}: [
+        function (require, module, exports) {
+          ${mod.code}
+        },
+        ${JSON.stringify(mod.mapping)},
+      ],`
+    ;
   });
 
-  // Finally, we implement the body of the self-invoking function.
-  //
-  // We start by creating a `require()` function: It accepts a module id and
-  // looks for it in the `modules` object we constructed previously. We
-  // destructure over the two-value array to get our function wrapper and the
-  // mapping object.
-  //
-  // The code of our modules has calls to `require()` with relative file paths
-  // instead of module ids. Our require function expects module ids. Also, two
-  // modules might `require()` the same relative path but mean two different
-  // modules.
-  //
-  // To handle that, when a module is required we create a new, dedicated
-  // `require` function for it to use. It will be specific to that module and
-  // will know to turn its relative paths into ids by using the module's
-  // mapping object. The mapping object is exactly that, a mapping between
-  // relative paths and module ids for that specific module.
-  //
-  // Lastly, with CommonJs, when a module is required, it can expose values by
-  // mutating its `exports` object. The `exports` object, after it has been
-  // changed by the module's code, is returned from the `require()` function.
   const result = `
     (function(modules) {
       function require(id) {
@@ -230,20 +135,64 @@ function bundle(graph) {
 
         const module = { exports : {} };
 
+        // 递归require，依次得到依赖的exports结果
         fn(localRequire, module, module.exports);
 
+        // 返回exports 通过递归最终会返回模块所有结果
         return module.exports;
       }
 
       require(0);
     })({${modules}})
-  `;
+  `; // 打包
 
-  // We simply return the result, hurray! :)
   return result;
+}
+
+/**
+ * readFile
+ * @param {*} fd  文件标识符
+ * @param {*} data
+ */
+function writeData(fd, data) {
+  fs.writeFile(fd, data, 'utf8', err => {
+    if (err) throw err;
+    console.log('minipack is OK! saved in "root/dist/dist.js"');
+    console.log('you can run it!  Expected Output:');
+    console.log('\nhello world!\nworld');
+  });
+}
+
+/**
+ * 将result 写入到 dist/dist.js 文件
+ * @param {string} data
+ */
+function writeDist(data) {
+  // 路径有文件夹不存在，不能自动创建该文件夹吗？必须手动mkdir
+  // 我不确定是否有对应的API  nodejs v8.11.0
+  fs.mkdir('./dist', err => {
+    if (err) {
+      if (err.code !== 'EEXIST') {
+        console.log(err);
+        return;
+      }
+    }
+
+    // test in Windows  覆盖写入
+    fs.open('./dist/dist.js', 'w+', 0o777, (err, fd) => {
+      if (err) {
+        console.log(err);
+        return;
+      }
+
+      writeData(fd, data);
+    });
+  });
 }
 
 const graph = createGraph('./example/entry.js');
 const result = bundle(graph);
 
 console.log(result);
+
+writeDist(result);

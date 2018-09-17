@@ -2,6 +2,14 @@
 
 > A simplified example of a modern module bundler written in JavaScript
 
+Forked from [ronami/minipack](https://github.com/ronami/minipack)
+
+### modification
+
+Add some Chinese comments to express my understanding to simple bundler.
+
+you can see [my notes about it](https://github.com/Flcwl/notes/blob/master/tools/webpack/bundler.md)
+
 ### Introduction
 
 As front-end developers, we spend a lot of time working with tools like [Webpack](https://github.com/webpack/webpack), [Browserify](https://github.com/browserify/browserify), and [Parcel](https://github.com/parcel-bundler/parcel).
